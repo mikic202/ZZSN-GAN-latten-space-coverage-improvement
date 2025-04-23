@@ -1,26 +1,40 @@
-from collections import defaultdict
-import numpy as np
+import torch
+import torch.nn as nn
+from scipy.stats import wasserstein_distance
 
 
-def get_buckets(data: np.ndarray, projection: np.ndarray) -> set:
+def get_buckets(data, projection):
     """Maps a batch of features to a set of unique buckets via LSH."""
     result = data @ projection
-    hashed = [tuple(int(x) for x in row) for row in (result > 0)]
-
-    buckets = defaultdict(list)
-    for i, row in enumerate(hashed):
-        buckets[row].append(i)
-
-    return set("".join(map(str, k)) for k in buckets.keys())
+    return torch.nn.functional.sigmoid(result)
 
 
-def compare_latten_coverage(
-    original_data_latten, generated_data_latten, number_of_buckets
-) -> float:
-    projection = np.random.randn(original_data_latten.shape[1], number_of_buckets)
-    original_coverage = get_buckets(original_data_latten, projection)
-    generated_coverage = get_buckets(generated_data_latten, projection)
+def kullback_leibler_div(data, data_to_compare):
+    return nn.functional.cross_entropy(
+        data, data_to_compare
+    ) - nn.functional.cross_entropy(data, data)
 
-    return abs(len(original_coverage) - len(generated_coverage)) / len(
-        original_coverage
+
+def jensen_shannon_loss(data, data_to_compare):
+    return kullback_leibler_div(
+        data, (data + data_to_compare) / 2
+    ) + kullback_leibler_div(data_to_compare, (data + data_to_compare) / 2)
+
+
+def wasserstein_loss(data, data_to_compare):
+    return wasserstein_distance(data, data_to_compare)
+
+
+def gaussian_kernel(x, y, sigma=1.0):
+    x_norm = (x**2).sum(dim=1).view(-1, 1)
+    y_norm = (y**2).sum(dim=1).view(1, -1)
+    dist = x_norm + y_norm - 2.0 * torch.mm(x, y.t())
+    return torch.exp(-dist / (2 * sigma**2))
+
+
+def maximum_mean_discrepancy(x, y, sigma=1.0):
+    return (
+        gaussian_kernel(x, x, sigma).mean()
+        + gaussian_kernel(y, y, sigma).mean()
+        - 2 * gaussian_kernel(x, y, sigma).mean()
     )
