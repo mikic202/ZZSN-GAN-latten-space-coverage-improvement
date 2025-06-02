@@ -2,3 +2,4 @@ data/
 __pycahce__/
 *.pyc
 task_*/
+test_*/

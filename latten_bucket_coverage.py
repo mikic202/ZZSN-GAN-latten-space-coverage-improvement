@@ -1,12 +1,23 @@
 import torch
 import torch.nn as nn
 from scipy.stats import wasserstein_distance
+from collections import defaultdict
 
 
 def get_buckets(data, projection):
     """Maps a batch of features to a set of unique buckets via LSH."""
     result = data @ projection
     return torch.nn.functional.sigmoid(result)
+
+def get_desctrete_buckets(data, projection):
+    result = data @ projection
+    hashed = [tuple(int(x) for x in row) for row in (result > 0)]
+
+    buckets = defaultdict(list)
+    for i, row in enumerate(hashed):
+        buckets[row].append(i)
+
+    return set("".join(map(str, k)) for k in buckets.keys())
 
 
 def kullback_leibler_div(data, data_to_compare):
