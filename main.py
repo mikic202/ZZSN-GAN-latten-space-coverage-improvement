@@ -11,8 +11,9 @@ import sys
 import datetime
 import pwd
 import os
+import csv
 
-from latten_bucket_coverage import get_buckets, jensen_shannon_loss
+from latten_bucket_coverage import get_buckets, jensen_shannon_loss, kullback_leibler_div, get_desctrete_buckets
 from scipy.stats import wasserstein_distance
 
 
@@ -39,6 +40,7 @@ print(f"Using: {device}")
 
 parameters = pd.read_csv("parameters.csv")
 task_parameters = parameters.iloc[task_index]
+some_NN_param = int(task_parameters["NN_param"])
 print(f"Using parameters {task_parameters}")
 
 # Load Data
@@ -46,17 +48,26 @@ data = np.load(f'/net/tscratch/people/{current_user}/data/data_nonrandom_respons
 data_cond = np.load(f'/net/tscratch/people/{current_user}/data/data_nonrandom_particles.npz')['arr_0']
 data_cond = pd.DataFrame(data_cond, columns=['Energy','Vx','Vy','Vz','Px','Py','Pz','mass','charge'], dtype=np.float32)
 
-# Preprocessing
 data = np.log(data + 1).astype(np.float32)
 
 x_train, y_train = data_cond, data
 
-x_test = torch.tensor(x_train.values[:100]).to(device)
-y_test = torch.tensor(y_train[:100]).to(device)
+num_instances = x_train.values.shape[0]
+indices = np.random.permutation(num_instances)
 
-x_train = torch.tensor(x_train.values).to(device)
-y_train = torch.tensor(y_train).to(device)
+split_idx = int(0.9 * num_instances)
+train_indices = indices[:split_idx]
+test_indices = indices[split_idx:]
 
+
+x_test = torch.tensor(x_train.values[test_indices]).to(device)
+y_test = torch.tensor(y_train[test_indices]).to(device)
+
+x_train = torch.tensor(x_train.values[train_indices])
+y_train = torch.tensor(y_train[train_indices])
+
+
+print(len(y_train), len(y_test))
 
 batch_size = int(task_parameters["batch_s"])
 train_dataset = TensorDataset(x_train, y_train)
@@ -116,7 +127,7 @@ def calculate_ws_ch(generator, y_test, x_test, n_calc=5, batch_size=256):
 
             for i in range(0, n_samples, batch_size):
                 end = min(i + batch_size, n_samples)
-                z = torch.randn(end - i, 10, generator=torch.Generator().manual_seed(SEED)).to(device)
+                z = torch.randn(end - i, some_NN_param, generator=torch.Generator().manual_seed(SEED)).to(device)
                 y_batch = y_test[i:end]
                 fake = generator(z, y_batch)
                 fake = torch.exp(fake) - 1
@@ -136,6 +147,7 @@ def calculate_ws_ch(generator, y_test, x_test, n_calc=5, batch_size=256):
         print()
         torch.cuda.empty_cache()
         gc.collect()
+    return ws
 
 # def generate_and_save_images(model, epoch, test_input, cond_input):
 #     model.eval()
@@ -163,34 +175,34 @@ class Generator(nn.Module):
     def __init__(self, noise_dim, cond_dim):
         super(Generator, self).__init__()
         self.fc1 = nn.Sequential(
-            nn.Linear(noise_dim + cond_dim, 256),
-            nn.BatchNorm1d(256),
-            nn.Dropout(0.2),
+            nn.Linear(noise_dim + cond_dim, 2048),
+            nn.BatchNorm1d(2048),
+            nn.Dropout(0.05),
             nn.LeakyReLU(0.1, inplace=True)
         )
         self.fc2 = nn.Sequential(
-            nn.Linear(256, 128 * 13 * 13),
+            nn.Linear(2048, 128 * 13 * 13),
             nn.BatchNorm1d(128 * 13 * 13),
-            nn.Dropout(0.2),
+            nn.Dropout(0.05),
             nn.LeakyReLU(0.1, inplace=True)
         )
         self.upsample = nn.Upsample(scale_factor=(2, 2))
         self.conv_layers = nn.Sequential(
             nn.Conv2d(128, 256, kernel_size=3),
             nn.BatchNorm2d(256),
-            nn.Dropout(0.2),
+            nn.Dropout(0.05),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Upsample(scale_factor=(2, 2)),
-            nn.Conv2d(256, 128, kernel_size=3),
-            nn.BatchNorm2d(128),
-            nn.Dropout(0.2),
+            nn.Conv2d(256, 256, kernel_size=3),
+            nn.BatchNorm2d(256),
+            nn.Dropout(0.05),
             nn.LeakyReLU(0.05, inplace=True),
-            nn.Conv2d(128, 64, kernel_size=2),
+            nn.Conv2d(256, 64, kernel_size=2),
             nn.BatchNorm2d(64),
-            nn.Dropout(0.2),
-            nn.LeakyReLU(0.15, inplace=True),
+            nn.Dropout(0.05),
+            nn.LeakyReLU(0.05, inplace=True),
             nn.Conv2d(64, 1, kernel_size=2),
-            nn.ReLU(inplace=True)
+            nn.Sigmoid()
         )
 
     def forward(self, noise, cond):
@@ -209,22 +221,22 @@ class Discriminator(nn.Module):
             nn.Conv2d(1, 64, kernel_size=3),
             nn.BatchNorm2d(64),
             nn.LeakyReLU(0.1, inplace=True),
-            nn.Dropout(0.2),
+            nn.Dropout(0.1),
             nn.MaxPool2d(kernel_size=2),
             nn.Conv2d(64, 16, kernel_size=3),
             nn.BatchNorm2d(16),
             nn.LeakyReLU(0.1, inplace=True),
-            nn.Dropout(0.2),
+            nn.Dropout(0.1),
             nn.MaxPool2d(kernel_size=2)
         )
         self.fc1 = nn.Sequential(
-            nn.Linear(9 * 12 * 12 + cond_dim, 128),
-            nn.BatchNorm1d(128),
+            nn.Linear(9 * 12 * 12 + cond_dim, 512),
+            nn.BatchNorm1d(512),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Dropout(0.2)
         )
         self.fc2 = nn.Sequential(
-            nn.Linear(128, LATTEN_SPACE),
+            nn.Linear(512, LATTEN_SPACE),
             nn.BatchNorm1d(LATTEN_SPACE),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Dropout(0.2)
@@ -243,7 +255,7 @@ class Discriminator(nn.Module):
         return out, latent
 
 # Instantiate models
-generator = Generator(10, 9).to(device)
+generator = Generator(some_NN_param, 9).to(device)
 discriminator = Discriminator(9).to(device)
 
 lr = task_parameters["lr"]
@@ -255,14 +267,20 @@ optimizer_D = optim.Adam(discriminator.parameters(), lr=lr)
 def binary_accuracy(preds, targets):
     return ((preds > 0.5) == targets).float().mean().item()
 
+scheduler_D = optim.lr_scheduler.StepLR(optimizer_D, step_size=15, gamma=0.6)
+scheduler_G = optim.lr_scheduler.StepLR(optimizer_G, step_size=15, gamma=0.6)
+
 step = 0
-seed = torch.randn(16, 10, generator=torch.Generator().manual_seed(SEED)).to(device)
-seed_cond = y_train[20:36].to(device)
+lambda_gp = 10.0
 
 alpha = task_parameters["alpha"]
 
 EPOCHS = int(task_parameters["epochs"])
 calculate_ws_ch(generator, x_test, y_test)
+
+latten_distances_thorugh_epochs = []
+losses_thorugh_epochs = []
+wassersteine_dist_list = []
 
 for epoch in range(EPOCHS):
     start = time.time()
@@ -273,10 +291,11 @@ for epoch in range(EPOCHS):
     losses = []
     for i, (cond, real_images) in enumerate(train_loader):
         batch_size = real_images.size(0)
-        real_images = real_images.view(-1, 1, 44, 44)
+        real_images = real_images.view(-1, 1, 44, 44).to(device)
+        cond = cond.to(device)
         real_labels = torch.ones(batch_size, 1).to(device)
         fake_labels = torch.zeros(batch_size, 1).to(device)
-        noise = torch.randn(batch_size, 10, generator=torch.Generator().manual_seed(SEED)).to(device)
+        noise = torch.randn(batch_size, some_NN_param).to(device)
         fake_images = generator(noise, cond)
 
         outputs_real, latents_real = discriminator(real_images, cond)
@@ -289,7 +308,21 @@ for epoch in range(EPOCHS):
 
         loss_real = criterion(outputs_real, real_labels)
         loss_fake = criterion(outputs_fake, fake_labels)
-        loss_D = loss_real + loss_fake
+
+        interpolated_samples = (alpha * real_images + (1 - alpha) * fake_images.detach()).requires_grad_(True)
+        d_interpolated, _ = discriminator(interpolated_samples, cond)
+
+        gradients = torch.autograd.grad(
+            outputs=d_interpolated,
+            inputs=interpolated_samples,
+            grad_outputs=torch.ones_like(d_interpolated, device=device),
+            create_graph=True,
+            retain_graph=True,
+        )[0]
+
+        gradient_norm = gradients.view(gradients.size(0), -1).norm(2, dim=1)
+
+        loss_D = outputs_fake.mean() - outputs_real.mean() + ((gradient_norm - 1) ** 2).mean() * lambda_gp
 
         optimizer_D.zero_grad()
         loss_D.backward()
@@ -303,20 +336,54 @@ for epoch in range(EPOCHS):
         total_g_acc = (total_g_acc + g_acc)/2
 
         latten_dist = jensen_shannon_loss(get_buckets(latents_fake, PROJECTION), get_buckets(latents_real, PROJECTION))
-        criterion_loss = criterion(outputs, real_labels)
+        criterion_loss = 1 - outputs.mean()
         loss_G = criterion_loss + alpha * latten_dist
-        latten_distances.append(latten_dist)
-        losses.append(criterion_loss)
 
         optimizer_G.zero_grad()
         loss_G.backward()
         optimizer_G.step()
 
+        latten_distances.append(latten_dist.to('cpu').detach().numpy())
+        losses.append(criterion_loss.to('cpu').detach().numpy())
+
     print(f"Time for epoch {epoch+1} is {time.time() - start:.2f} sec  [D real acc: {100 * total_d_real_acc:.2f}%] [D fake acc: {100 * total_d_fake_acc:.2f}%] [G acc: {100 * total_g_acc:.2f}%] [AVG lat dist: {sum(latten_distances)/len(latten_distances)}] [AVG loss: {sum(losses)/len(losses)}]")
-    calculate_ws_ch(generator, x_test, y_test)
+    latten_distances_thorugh_epochs.append(sum(latten_distances)/len(latten_distances))
+    losses_thorugh_epochs.append((sum(losses)/len(losses)))
+
+    scheduler_D.step()
+    scheduler_G.step()
+
+    if (epoch + 1) % 5 == 0:
+        wassersteine_dist_list.append(calculate_ws_ch(generator, x_test, y_test))
 
 
 torch.save(generator.state_dict(), f'task_{task_index}/models/generator.pth')
 torch.save(discriminator.state_dict(), f'task_{task_index}/models/discriminator.pth')
+
+pd.DataFrame({"latten_dist": np.array(latten_distances_thorugh_epochs), "losses": np.array(losses_thorugh_epochs)}).to_csv(f'task_{task_index}/lesses.csv')
+np.savetxt(f'task_{task_index}/ws_dist.csv', wassersteine_dist_list, delimiter=',')
+
+unique_buckets = set()
+unique_generated_buckets = set()
+
+calculate_ws_ch(generator, x_test, y_test)
+
+for cond, real_images in train_loader:
+    batch_size = real_images.size(0)
+    real_images = real_images.view(-1, 1, 44, 44).to(device)
+    cond = cond.to(device)
+    noise = torch.randn(batch_size, some_NN_param).to(device)
+    fake_images = generator(noise, cond)
+    _, latents_real = discriminator(real_images, cond)
+    _, latents_fake = discriminator(fake_images, cond)
+
+
+    unique_buckets.update(get_desctrete_buckets(latents_real, PROJECTION))
+    unique_generated_buckets.update(get_desctrete_buckets(latents_fake, PROJECTION))
+
+print(f"Train set covers {len(unique_buckets)/2**N:.2f}% of latten space, Generator covers {len(unique_generated_buckets)/2**N:.2f}%")
+
+# print(f"Train set covers {len(unique_buckets)/2**N:.2f}% of latten space")
+
 
 print(f"Saved model with index {task_index}")
