@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 from scipy.stats import wasserstein_distance
+import numpy as np
+import gc
 from collections import defaultdict
 
 
@@ -50,7 +52,6 @@ def maximum_mean_discrepancy(x, y, sigma=1.0):
         - 2 * gaussian_kernel(x, y, sigma).mean()
     )
 
-
 def soft_histogram(soft_hash, num_bins, sigma, projection):
     bin_centers = torch.linspace(0, 2 ** projection.shape[1] - 1, num_bins).to(
         soft_hash.device
@@ -78,10 +79,23 @@ def lsh_diversity_loss(
     soft_hash_real = get_soft_hash(real_data, projection)
     soft_hash_fake = get_soft_hash(fake_data, projection)
 
-    hist_real = soft_histogram(soft_hash_real, num_bins, sigma)
-    hist_fake = soft_histogram(soft_hash_fake, num_bins, sigma)
+    hist_real = soft_histogram(soft_hash_real, num_bins, sigma, projection)
+    hist_fake = soft_histogram(soft_hash_fake, num_bins, sigma, projection)
 
     occ_real = estimate_occupied_bins(hist_real, alpha)
     occ_fake = estimate_occupied_bins(hist_fake, alpha)
 
     return torch.nn.functional.mse_loss(occ_fake, occ_real)
+
+def one_dim_wasserstein_loss(buckets_real: torch.Tensor,
+                             buckets_fake: torch.Tensor) -> torch.Tensor:
+    proj_real = buckets_real.t()
+    proj_fake = buckets_fake.t()
+
+    real_sorted, _ = torch.sort(proj_real, dim=1)
+    fake_sorted, _ = torch.sort(proj_fake, dim=1)
+
+    wass_per_proj = torch.abs(real_sorted - fake_sorted).mean(dim=1)
+    sw_dist = wass_per_proj.mean()
+
+    return sw_dist
