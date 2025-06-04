@@ -72,7 +72,7 @@ train_dataset = TensorDataset(x_train, y_train)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, generator=torch.Generator().manual_seed(SEED))
 
 
-LATTEN_SPACE = 128
+LATTEN_SPACE = 64
 N=13
 PROJECTION = torch.randn(LATTEN_SPACE, N, requires_grad=True).to(device)
 
@@ -147,46 +147,52 @@ def calculate_ws_ch(generator, y_test, x_test, n_calc=5, batch_size=256):
         gc.collect()
 
 
+def generate_and_save_images(model, test_input, cond_input):
+    model.eval()
+    with torch.no_grad():
+        predictions = model(test_input, cond_input).cpu().numpy()
+    return predictions.reshape(14, 44, 44)
+
 
 class Generator(nn.Module):
     def __init__(self, noise_dim, cond_dim):
         super(Generator, self).__init__()
         self.fc1 = nn.Sequential(
-            nn.Linear(noise_dim + cond_dim, 1024),
-            nn.BatchNorm1d(1024),
+            nn.Linear(noise_dim + cond_dim, 512),
+            nn.BatchNorm1d(512),
             nn.Dropout(0.1),
             nn.LeakyReLU(0.1, inplace=True)
         )
         self.fc2 = nn.Sequential(
-            nn.Linear(1024, 256 * 13 * 13),
-            nn.BatchNorm1d(256 * 13 * 13),
+            nn.Linear(512, 64 * 13 * 13),
+            nn.BatchNorm1d(64 * 13 * 13),
             nn.Dropout(0.1),
             nn.LeakyReLU(0.1, inplace=True)
         )
         self.upsample = nn.Upsample(scale_factor=(2, 2))
         self.conv_layers = nn.Sequential(
-            nn.Conv2d(256, 256, kernel_size=3),
+            nn.Conv2d(64, 256, kernel_size=3),
             nn.BatchNorm2d(256),
-            nn.Dropout(0.1),
-            nn.LeakyReLU(0.1, inplace=True),
+            nn.Dropout(0.2),
+            nn.Hardsigmoid(),
             nn.Upsample(scale_factor=(2, 2)),
-            nn.Conv2d(256, 128, kernel_size=3),
+            nn.Conv2d(256, 128, kernel_size=5, padding=1),
             nn.BatchNorm2d(128),
-            nn.Dropout(0.1),
+            nn.Dropout(0.2),
             nn.LeakyReLU(0.05, inplace=True),
             nn.Conv2d(128, 128, kernel_size=2),
             nn.BatchNorm2d(128),
-            nn.Dropout(0.1),
+            nn.Dropout(0.2),
             nn.LeakyReLU(0.15, inplace=True),
             nn.Conv2d(128, 1, kernel_size=2),
-            nn.Sigmoid()
+            nn.ReLU(inplace=True)
         )
 
     def forward(self, noise, cond):
         x = torch.cat((noise, cond), dim=1)
         x = self.fc1(x)
         x = self.fc2(x)
-        x = x.view(-1, 256, 13, 13)
+        x = x.view(-1, 64, 13, 13)
         x = self.upsample(x)
         x = self.conv_layers(x)
         return x
@@ -195,25 +201,25 @@ class Discriminator(nn.Module):
     def __init__(self, cond_dim):
         super(Discriminator, self).__init__()
         self.conv_layers = nn.Sequential(
-            nn.Conv2d(1, 64, kernel_size=5, padding=1),
-            nn.BatchNorm2d(64),
+            nn.Conv2d(1, 128, kernel_size=3),
+            nn.BatchNorm2d(128),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Dropout(0.2),
             nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(64, 16, kernel_size=3),
+            nn.Conv2d(128, 16, kernel_size=3),
             nn.BatchNorm2d(16),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Dropout(0.2),
             nn.MaxPool2d(kernel_size=2)
         )
         self.fc1 = nn.Sequential(
-            nn.Linear(9 * 12 * 12 + cond_dim, 256),
-            nn.BatchNorm1d(256),
+            nn.Linear(9 * 12 * 12 + cond_dim, 128),
+            nn.BatchNorm1d(128),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Dropout(0.2)
         )
         self.fc2 = nn.Sequential(
-            nn.Linear(256, LATTEN_SPACE),
+            nn.Linear(128, LATTEN_SPACE),
             nn.BatchNorm1d(LATTEN_SPACE),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Dropout(0.2)
@@ -232,12 +238,13 @@ class Discriminator(nn.Module):
         return out, latent
 
 
+NOISE_SIZE = 10
 
-
-generator = Generator(10, 9).to(device)
+generator = Generator(NOISE_SIZE, 9).to(device)
 discriminator = Discriminator(9).to(device)
-generator.load_state_dict(torch.load(f"/net/people/plgrid/plgmchomans/test_10_really_good/task_0/models/generator.pth", map_location=device))
-discriminator.load_state_dict(torch.load(f"/net/people/plgrid/plgmchomans/test_10_really_good/task_0/models/discriminator.pth", map_location=device))
+generator.load_state_dict(torch.load(f"/net/tscratch/people/{current_user}/test_5/task_0/models/generator.pth", map_location=device))
+discriminator.load_state_dict(torch.load(f"/net/tscratch/people/{current_user}/test_5/task_0/models/discriminator.pth", map_location=device))
+
 
 criterion = nn.BCELoss()
 
@@ -255,7 +262,7 @@ for cond, real_images in train_loader:
     batch_size = real_images.size(0)
     agregated_batch_size += batch_size
     real_images = real_images.view(-1, 1, 44, 44).to(device)
-    noise = torch.randn(batch_size, 10).to(device)
+    noise = torch.randn(batch_size, NOISE_SIZE).to(device)
     cond = cond.to(device)
     fake_images = generator(noise, cond)
     if output is None:
@@ -275,8 +282,24 @@ for cond, real_images in train_loader:
 pd.DataFrame({"coverage": increase_of_bucket_coverage, "samples": increase_of_samples, "gen_coverage": increase_of_gen_bucket_coverage}).to_csv(f"Bucket_cov_N{N}.csv")
 torch.save(output, "generated_images.pth")
 
+random_test_smaples = [1, 23, 98, 574, 723]
+output = None
+
+for i in range(5):
+    seed = torch.randn(14, NOISE_SIZE, generator=torch.Generator().manual_seed(SEED)).to(device)
+    same_seed_cond = x_train[random_test_smaples[i]].to(device)
+    print(same_seed_cond.shape)
+    same_seed_cond = same_seed_cond.repeat(14, 1)
+    generated_images = generate_and_save_images(generator, seed, same_seed_cond)
+    if output is None:
+        output = fake_images.detach().cpu()
+    else:
+        output = torch.concat((output, fake_images.detach().cpu()))
+
+torch.save(output, "repeatin_condition.pth")
+
 print(f"Train set covers {len(unique_buckets)*100/2**N:.2f}% of latten space")
 
-calculate_ws_ch(generator, x_train, y_test)
+# calculate_ws_ch(generator, x_train, y_test)
 
 print(f"Saved model with index {task_index}")
