@@ -282,7 +282,7 @@ for cond, real_images in train_loader:
 pd.DataFrame({"coverage": increase_of_bucket_coverage, "samples": increase_of_samples, "gen_coverage": increase_of_gen_bucket_coverage}).to_csv(f"Bucket_cov_N{N}.csv")
 torch.save(output, "generated_images.pth")
 
-random_test_smaples = [1, 65, 167, 574, 723]
+random_test_smaples = [1, 65, 246, 574, 723]
 output = None
 
 for i in range(5):
