@@ -1,0 +1,7 @@
+sbatch -A plgzzsn2025-gpu-a100 -o task_%a/slurm_%a.log -p plgrid-gpu-a100 -t 240 --array 0-3 -c 1 --gres gpu:1 --mem 15G --nodes 1 main_task.sh
+
+sbatch -A plgzzsn2025-gpu-a100 -o latten_coverage.log -p plgrid-gpu-a100 -t 5 --array 0 -c 1 --gres gpu:1 --mem 15G --nodes 1 latten_task.sh
+
+sbatch -A plgzzsn2025-gpu-a100 -o slurm_%a.log -p plgrid-gpu-a100 -t 16 --array 0 -c 1 --gres gpu:1 --mem 15G --nodes 1 generate_task.sh
+
+sbatch -A plgzzsn2025-gpu-a100 -o task_%a/slurm_%a.log -p plgrid-gpu-a100 -t 160 --array 0-1 -c 1 --gres gpu:1 --mem 15G --nodes 1 main_task.sh
