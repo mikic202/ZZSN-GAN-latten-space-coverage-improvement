@@ -149,27 +149,6 @@ def calculate_ws_ch(generator, y_test, x_test, n_calc=5, batch_size=256):
         gc.collect()
     return ws
 
-# def generate_and_save_images(model, epoch, test_input, cond_input):
-#     model.eval()
-#     with torch.no_grad():
-#         predictions = model(test_input, cond_input).cpu().numpy()
-
-#     fig, axs = plt.subplots(2, 7, figsize=(15, 4))
-#     for i in range(14):
-#         if i < 7:
-#             x = x_train[20 + i].cpu().numpy().reshape(44, 44)
-#         else:
-#             x = predictions[i - 7].reshape(44, 44)
-#         im = axs[i // 7, i % 7].imshow(x, cmap='gnuplot')
-#         axs[i // 7, i % 7].axis('off')
-#         fig.colorbar(im, ax=axs[i // 7, i % 7])
-#     plt.savefig(f'image_at_epoch_{epoch:04d}.png')
-#     plt.show()
-#     plt.close()
-#     torch.cuda.empty_cache()
-#     gc.collect()
-
-
 # Models
 class Generator(nn.Module):
     def __init__(self, noise_dim, cond_dim):
