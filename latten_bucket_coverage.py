@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 from scipy.stats import wasserstein_distance
-import numpy as np
-import gc
 from collections import defaultdict
 
 

@@ -10,3 +10,4 @@ INDEX=${SLURM_ARRAY_TASK_ID:-0}
 mkdir -p task_$INDEX/models
 
 python3 main.py $INDEX
+# python3 main_clean.py $INDEX
