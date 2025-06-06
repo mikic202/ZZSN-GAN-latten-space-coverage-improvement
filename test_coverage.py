@@ -1,10 +1,9 @@
-import time
 import gc
 import random
 import numpy as np
 import pandas as pd
 # import matplotlib.pyplot as plt
-from torch import nn, optim
+from torch import nn
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 import sys
@@ -12,7 +11,7 @@ import datetime
 import pwd
 import os
 
-from latten_bucket_coverage import get_buckets, jensen_shannon_loss, kullback_leibler_div, get_desctrete_buckets
+from latten_bucket_coverage import get_desctrete_buckets
 from scipy.stats import wasserstein_distance
 
 
@@ -43,8 +42,8 @@ some_NN_param = int(task_parameters["NN_param"])
 print(f"Using parameters {task_parameters}")
 
 # Load Data
-data = np.load(f'/net/people/plgrid/plgmchomans/data_nonrandom_responses.npy')
-data_cond = np.load(f'/net/people/plgrid/plgmchomans/data_nonrandom_particles.npy')
+data = np.load('/net/people/plgrid/plgmchomans/data_nonrandom_responses.npy')
+data_cond = np.load('/net/people/plgrid/plgmchomans/data_nonrandom_particles.npy')
 data_cond = pd.DataFrame(data_cond, columns=['Energy','Vx','Vy','Vz','Px','Py','Pz','mass','charge'], dtype=np.float32)
 
 data = np.log(data + 1).astype(np.float32)
