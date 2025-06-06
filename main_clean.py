@@ -19,6 +19,7 @@ from latten_bucket_coverage import (
     jensen_shannon_loss,
     lsh_diversity_loss,
     wasserstein_loss,
+    one_dim_wasserstein_loss,
 )
 from scipy.stats import wasserstein_distance
 
@@ -287,7 +288,9 @@ class Discriminator(nn.Module):
 
 # Instantiate models
 generator = Generator(10, 9).to(device)
+print(generator)
 discriminator = Discriminator(9).to(device)
+print(discriminator)
 
 lr = task_parameters["lr"]
 
@@ -357,7 +360,7 @@ for epoch in range(EPOCHS):
         g_acc = binary_accuracy(outputs, real_labels)
         total_g_acc = (total_g_acc + g_acc) / 2
 
-        latten_dist = jensen_shannon_loss(
+        latten_dist = one_dim_wasserstein_loss(
             get_buckets(latents_fake, PROJECTION), get_buckets(latents_real, PROJECTION)
         )
         criterion_loss = criterion(outputs, real_labels)
